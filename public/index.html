@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tether.io - Swing & Smash</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #0a0a0a;
+      font-family: 'Arial', sans-serif;
+    }
+    canvas {
+      display: block;
+      background: #1a1a2e;
+    }
+    #ui {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: #fff;
+      font-size: 20px;
+      text-shadow: 2px 2px 4px #000;
+    }
+    #eliminated {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #ff4444;
+      font-size: 48px;
+      font-weight: bold;
+      display: none;
+      text-shadow: 3px 3px 6px #000;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="ui">
+    <div>Score: <span id="score">0</span></div>
+    <div>Players: <span id="players">0</span></div>
+  </div>
+  <div id="eliminated">YOU WERE ELIMINATED!</div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const socket = io();
+
+    let myId = null;
+    let worldWidth = 0;
+    let worldHeight = 0;
+    let pillars = [];
+    let players = [];
+    let camera = { x: 0, y: 0 };
+    let mouseX = 0;
+    let mouseY = 0;
+    let isHooked = false;
+
+    socket.on('init', (data) => {
+      myId = data.id;
+      worldWidth = data.worldWidth;
+      worldHeight = data.worldHeight;
+      pillars = data.pillars;
+    });
+
+    socket.on('state', (state) => {
+      players = state;
+      const me = players.find(p => p.id === myId);
+      if (me) {
+        camera.x = me.x - canvas.width / 2;
+        camera.y = me.y - canvas.height / 2;
+        document.getElementById('score').innerText = me.score;
+      }
+      document.getElementById('players').innerText = players.length;
+    });
+
+    socket.on('eliminated', () => {
+      document.getElementById('eliminated').style.display = 'block';
+      setTimeout(() => location.reload(), 3000);
+    });
+
+    canvas.addEventListener('mousedown', () => {
+      isHooked = true;
+      socket.emit('hook', { mouseX: mouseX + camera.x, mouseY: mouseY + camera.y, release: false });
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      isHooked = false;
+      socket.emit('hook', { release: true });
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+      if (isHooked) {
+        socket.emit('hook', { mouseX: mouseX + camera.x, mouseY: mouseY + camera.y, release: false });
+      }
+    });
+
+    function draw() {
+      ctx.fillStyle = '#0f0f1e';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw pillars
+      ctx.fillStyle = '#444';
+      pillars.forEach((pillar) => {
+        ctx.beginPath();
+        ctx.arc(pillar.x - camera.x, pillar.y - camera.y, pillar.radius, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Draw players
+      players.forEach((player) => {
+        const x = player.x - camera.x;
+        const y = player.y - camera.y;
+
+        // Draw hook line
+        if (player.hooked && player.hookTarget) {
+          ctx.strokeStyle = player.id === myId ? '#00ff88' : '#ff0088';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(player.hookTarget.x - camera.x, player.hookTarget.y - camera.y);
+          ctx.stroke();
+        }
+
+        // Draw player ball
+        const speed = Math.sqrt(player.vx ** 2 + player.vy ** 2);
+        const hue = player.id === myId ? 120 : 0;
+        ctx.fillStyle = `hsl(${hue}, 80%, ${50 + speed * 2}%)`;
+        ctx.beginPath();
+        ctx.arc(x, y, 20, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw spikes
+        ctx.fillStyle = '#fff';
+        for (let i = 0; i < 8; i++) {
+          const angle = (Math.PI * 2 / 8) * i;
+          const sx = x + Math.cos(angle) * 15;
+          const sy = y + Math.sin(angle) * 15;
+          const ex = x + Math.cos(angle) * 25;
+          const ey = y + Math.sin(angle) * 25;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(ex, ey);
+          ctx.lineTo(x + Math.cos(angle + 0.3) * 15, y + Math.sin(angle + 0.3) * 15);
+          ctx.closePath();
+          ctx.fill();
+        }
+      });
+
+      requestAnimationFrame(draw);
+    }
+
+    draw();
+  </script>
+</body>
+</html>
